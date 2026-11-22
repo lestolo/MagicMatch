@@ -2,7 +2,7 @@
 
 [![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Platform: macOS arm64](https://img.shields.io/badge/platform-macOS%20arm64-lightgrey.svg)
-![Status: beta](https://img.shields.io/badge/status-1.0%20beta-orange.svg)
+![Status: beta](https://img.shields.io/badge/status-1.1%20beta-orange.svg)
 
 **Open-source camera-matching plugin for DaVinci Resolve (OpenFX).**
 
@@ -24,7 +24,7 @@ cameras, same look. It runs fully locally: no server, no AI inference, no accoun
 
 ## Install
 
-1. Download `MagicMatch-1.0b-macOS-arm64.zip` from the [latest release](https://github.com/lestolo/MagicMatch/releases/latest).
+1. Download `MagicMatch-1.1b-macOS-arm64.zip` from the [latest release](https://github.com/lestolo/MagicMatch/releases/latest).
 2. Unzip, double-click `install.command` (right-click → **Open** if macOS blocks it).
 3. Quit and restart DaVinci Resolve.
 
@@ -69,6 +69,8 @@ Put a Color Space Transform before MagicMatch and one after to return to your wo
 | Auto Match | Analyzes source vs reference and writes the CDL values |
 | Grab Reference | Stores the current frame's statistics as the reference |
 | Export CDL | Saves the current values as an ASC CDL `.cdl` file |
+| Match White Point | On by default. Auto Match also aligns exposure/contrast from the white and black points |
+| Match Midtones (Power) | Off by default. Auto Match also estimates a Power (0.9–1.1) from the mean luma |
 | Intensity | Blend between original (0) and full correction (1) |
 | Slope / Offset / Power R,G,B | CDL values (Power is left at 1.0 by Auto Match) |
 | Saturation | Global saturation |
@@ -81,9 +83,9 @@ Per pixel: `out = (in * Slope + Offset)^Power`, then saturation.
 Neutral-point analysis. For each image MagicMatch computes a saturation-weighted neutral gray point,
 the 1st/99th luma percentiles as black/white points, and a "colorful" saturation estimate.
 
-- **Slope**: ratio of reference/source neutral points per channel (clamped 0.7–1.4)
+- **Slope**: ratio of reference/source neutral points per channel (clamped 0.7–1.4). With *Match White Point* it is also scaled by `(ref.white − ref.black) / (src.white − src.black)` (clamped 0.7–1.4)
 - **Offset**: one uniform value aligning the black points (clamped ±0.15)
-- **Power**: fixed at 1.0
+- **Power**: 1.0, or with *Match Midtones* estimated from the mean luma (clamped 0.9–1.1)
 - **Saturation**: ratio of colorful saturation (clamped 0.85–1.15)
 
 ## Known limitations

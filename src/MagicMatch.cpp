@@ -108,6 +108,14 @@ static OfxParameterSuiteV1*    gParamSuite  = NULL;
 
 #define PARAM_SATURATION    "saturation"
 
+// Auto Match: se attivo, lo Slope include anche il fattore luma dato da
+// (ref.white - ref.black) / (src.white - src.black) (esposizione/contrasto)
+#define PARAM_MATCH_WHITE   "matchWhitePoint"
+
+// Auto Match: se attivo, stima un Power comune ai 3 canali dalla luma media
+// (richiede refMeanLuma, salvato da Grab Reference)
+#define PARAM_MATCH_POWER   "matchPower"
+
 #define PARAM_SKIN_ENABLE   "skinEnable"
 #define PARAM_SKIN_PROTECT  "skinProtection"
 
@@ -119,6 +127,7 @@ static OfxParameterSuiteV1*    gParamSuite  = NULL;
 #define PARAM_REF_BLACK     "refBlackPoint"
 #define PARAM_REF_WHITE     "refWhitePoint"
 #define PARAM_REF_SAT       "refColorfulSat"
+#define PARAM_REF_MEAN      "refMeanLuma"
 #define PARAM_REF_STATUS    "refStatus"
 
 #define CLIP_SOURCE         "Source"
@@ -362,7 +371,7 @@ static Stats computeStats(const float* data, int rowBytes,
 //     e applicare la dominante del reference
 //   - Offset per canale = allineamento del black point (via luminanza)
 //   - Saturation = ratio delle saturation colorful
-//   - Power = 1.0 (il CDL qui non tocca la gamma, solo WB + black/white)
+//   - Power = 1.0 di default (opzionale: stima dalla luma media, 0.9-1.1)
 // ─────────────────────────────────────────────────────────────────────
 
 struct CDL {
@@ -372,7 +381,7 @@ struct CDL {
     float saturation;
 };
 
-static CDL computeCDL(const Stats& src, const Stats& ref) {
+static CDL computeCDL(const Stats& src, const Stats& ref, bool matchWhitePoint, bool matchPower) {
     CDL c{};
 
     // ── Step 1: White Balance ────────────────────────────────────────
@@ -414,6 +423,24 @@ static CDL computeCDL(const Stats& src, const Stats& ref) {
     c.slopeG = std::max(0.7f, std::min(1.4f, c.slopeG));
     c.slopeB = std::max(0.7f, std::min(1.4f, c.slopeB));
 
+    // ── Step 1b: White point (esposizione/contrasto) — opzionale ─────
+    // Fit a due punti sulla luma: dopo slope e offset, il range
+    // [src.black, src.white] deve coincidere con [ref.black, ref.white].
+    // Fattore g = (ref.white - ref.black) / (src.white - src.black),
+    // clamp 0.7-1.4 come per il WB; se il range del source e' troppo
+    // piccolo (< 0.05) il fattore non e' affidabile e viene ignorato.
+    // Il risultato finale dello slope e' limitato a 0.5-2.0.
+    if (matchWhitePoint) {
+        float srcRange = src.whitePoint - src.blackPoint;
+        float refRange = ref.whitePoint - ref.blackPoint;
+        if (srcRange >= 0.05f && refRange > 0.0f) {
+            float g = std::max(0.7f, std::min(1.4f, refRange / srcRange));
+            c.slopeR = std::max(0.5f, std::min(2.0f, c.slopeR * g));
+            c.slopeG = std::max(0.5f, std::min(2.0f, c.slopeG * g));
+            c.slopeB = std::max(0.5f, std::min(2.0f, c.slopeB * g));
+        }
+    }
+
     // ── Step 2: Luminance alignment (exposure + black point) ─────────
     // Dopo lo slope, vogliamo anche che:
     //   - Il black point del source coincida con quello del reference
@@ -442,6 +469,21 @@ static CDL computeCDL(const Stats& src, const Stats& ref) {
     c.powerR = 1.0f;
     c.powerG = 1.0f;
     c.powerB = 1.0f;
+
+    // Opzionale (checkbox Match Midtones): Power comune ai 3 canali che porta
+    // la luma media del source (dopo slope e offset) a quella della reference:
+    //   mSrc^p = mRef  ->  p = ln(mRef) / ln(mSrc)
+    // Clamp stretto 0.9-1.1. Ignorato se le medie non sono affidabili
+    // (fuori da 0.05-0.95, oppure ref.meanLuma assente in un grab vecchio).
+    if (matchPower) {
+        float mSrc = src.meanLuma * avgSlope + blackOffset;
+        float mRef = ref.meanLuma;
+        if (mSrc > 0.05f && mSrc < 0.95f && mRef > 0.05f && mRef < 0.95f) {
+            float p = logf(mRef) / logf(mSrc);
+            p = std::max(0.9f, std::min(1.1f, p));
+            c.powerR = c.powerG = c.powerB = p;
+        }
+    }
 
     // ── Step 4: Saturation ───────────────────────────────────────────
     // Rapporto tra saturation media dei pixel colorati di reference e source.
@@ -573,6 +615,9 @@ struct Instance {
     OfxParamHandle pOffsetR, pOffsetG, pOffsetB;
     OfxParamHandle pPowerR,  pPowerG,  pPowerB;
     OfxParamHandle pSaturation;
+    OfxParamHandle pMatchWhite;
+    OfxParamHandle pMatchPower;
+    OfxParamHandle pRefMean;
     OfxParamHandle pSkinEnable;
     OfxParamHandle pSkinProtect;
     // Grab Reference
@@ -632,6 +677,7 @@ static void runGrabReference(Instance* inst, double time) {
     gParamSuite->paramSetValue(inst->pRefBlack,    (double)ref.blackPoint);
     gParamSuite->paramSetValue(inst->pRefWhite,    (double)ref.whitePoint);
     gParamSuite->paramSetValue(inst->pRefSat,      (double)ref.colorfulSat);
+    gParamSuite->paramSetValue(inst->pRefMean,     (double)ref.meanLuma);
 
     gParamSuite->paramSetValue(inst->pRefStatus, "Grabbed. Copy node to target clip.");
 
@@ -713,13 +759,14 @@ static void runAutoMatch(Instance* inst, double time) {
 
     // Priorita' 2: Statistiche salvate con Grab Reference
     if (!refFromClip) {
-        double nR, nG, nB, bp, wp, cs;
+        double nR, nG, nB, bp, wp, cs, ml = 0.0;
         gParamSuite->paramGetValueAtTime(inst->pRefNeutralR, time, &nR);
         gParamSuite->paramGetValueAtTime(inst->pRefNeutralG, time, &nG);
         gParamSuite->paramGetValueAtTime(inst->pRefNeutralB, time, &nB);
         gParamSuite->paramGetValueAtTime(inst->pRefBlack,    time, &bp);
         gParamSuite->paramGetValueAtTime(inst->pRefWhite,    time, &wp);
         gParamSuite->paramGetValueAtTime(inst->pRefSat,      time, &cs);
+        gParamSuite->paramGetValueAtTime(inst->pRefMean,     time, &ml);
 
         // Se nessun Grab e' stato fatto, tutti i valori sono 0 — non procedere
         if (nR < 0.001f && nG < 0.001f && nB < 0.001f) {
@@ -736,10 +783,17 @@ static void runAutoMatch(Instance* inst, double time) {
         ref.blackPoint  = (float)bp;
         ref.whitePoint  = (float)wp;
         ref.colorfulSat = (float)cs;
+        ref.meanLuma    = (float)ml; // 0 = grab di versione precedente: Power ignorato
         ref.sampleCount = 1; // marcato come "da parametri salvati"
     }
 
-    CDL cdl = computeCDL(src, ref);
+    int matchWhite = 1;
+    gParamSuite->paramGetValueAtTime(inst->pMatchWhite, time, &matchWhite);
+
+    int matchPower = 0;
+    gParamSuite->paramGetValueAtTime(inst->pMatchPower, time, &matchPower);
+
+    CDL cdl = computeCDL(src, ref, matchWhite != 0, matchPower != 0);
 
     gParamSuite->paramSetValue(inst->pSlopeR,     (double)cdl.slopeR);
     gParamSuite->paramSetValue(inst->pSlopeG,     (double)cdl.slopeG);
@@ -869,6 +923,24 @@ static OfxStatus onDescribeInContext(OfxImageEffectHandle effect, OfxPropertySet
     gEffectSuite->getParamSet(effect, &paramSet);
     OfxPropertySetHandle pp;
 
+    // ── Match White Point (opzione di Auto Match) ─────────────
+    gParamSuite->paramDefine(paramSet, kOfxParamTypeBoolean, PARAM_MATCH_WHITE, &pp);
+    gPropSuite->propSetString(pp, kOfxPropLabel, 0, "Match White Point");
+    gPropSuite->propSetInt(pp, kOfxParamPropDefault, 0, 1);
+    gPropSuite->propSetString(pp, kOfxParamPropHint, 0,
+        "Auto Match also aligns exposure/contrast using the white and black "
+        "points (1st/99th luma percentile). Turn off to match only white "
+        "balance, black point and saturation. Applies at the next Auto Match.");
+
+    // ── Match Midtones / Power (opzione di Auto Match) ────────
+    gParamSuite->paramDefine(paramSet, kOfxParamTypeBoolean, PARAM_MATCH_POWER, &pp);
+    gPropSuite->propSetString(pp, kOfxPropLabel, 0, "Match Midtones (Power)");
+    gPropSuite->propSetInt(pp, kOfxParamPropDefault, 0, 0);
+    gPropSuite->propSetString(pp, kOfxParamPropHint, 0,
+        "Auto Match also estimates a Power (gamma) from the mean luma, "
+        "limited to 0.9-1.1. Off by default. With a reference grabbed by an "
+        "older version, Grab Reference again. Applies at the next Auto Match.");
+
     // ── Auto Match button ─────────────────────────────────────
     gParamSuite->paramDefine(paramSet, kOfxParamTypePushButton, PARAM_AUTO_MATCH, &pp);
     gPropSuite->propSetString(pp, kOfxPropLabel, 0, "Auto Match");
@@ -913,6 +985,7 @@ static OfxStatus onDescribeInContext(OfxImageEffectHandle effect, OfxPropertySet
     defineHidden(PARAM_REF_BLACK);
     defineHidden(PARAM_REF_WHITE);
     defineHidden(PARAM_REF_SAT);
+    defineHidden(PARAM_REF_MEAN);
 
     // ── Export CDL button ─────────────────────────────────────
     gParamSuite->paramDefine(paramSet, kOfxParamTypePushButton, PARAM_EXPORT_CDL, &pp);
@@ -969,6 +1042,9 @@ static OfxStatus onCreateInstance(OfxImageEffectHandle effect) {
     gParamSuite->paramGetHandle(paramSet, PARAM_POWER_G,       &inst->pPowerG,      0);
     gParamSuite->paramGetHandle(paramSet, PARAM_POWER_B,       &inst->pPowerB,      0);
     gParamSuite->paramGetHandle(paramSet, PARAM_SATURATION,    &inst->pSaturation,  0);
+    gParamSuite->paramGetHandle(paramSet, PARAM_MATCH_WHITE,   &inst->pMatchWhite,  0);
+    gParamSuite->paramGetHandle(paramSet, PARAM_MATCH_POWER,   &inst->pMatchPower,  0);
+    gParamSuite->paramGetHandle(paramSet, PARAM_REF_MEAN,      &inst->pRefMean,     0);
     gParamSuite->paramGetHandle(paramSet, PARAM_SKIN_ENABLE,   &inst->pSkinEnable,  0);
     gParamSuite->paramGetHandle(paramSet, PARAM_SKIN_PROTECT,  &inst->pSkinProtect, 0);
 

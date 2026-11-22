@@ -19,7 +19,7 @@ OFX SDK (header): `~/Desktop/openfx/include` (override: `make OFX_SDK=...`). Rep
 ```bash
 make && make install        # /Library/OFX/Plugins, esegue xattr -cr
 make check                  # simboli esportati: solo OfxGetPlugin / OfxGetNumberOfPlugins
-make release                # build/MagicMatch-1.0b-macOS-arm64.zip
+make release                # build/MagicMatch-1.1b-macOS-arm64.zip
 ```
 
 - Resolve carica gli OFX **solo all'avvio**: dopo ogni install ricordare di riavviare Resolve (⌘Q e riapri).
@@ -49,7 +49,7 @@ make release                # build/MagicMatch-1.0b-macOS-arm64.zip
 - Un solo `OfxPlugin`, azioni: describe, describeInContext, createInstance, destroyInstance, instanceChanged (bottoni), render.
 - Instance data (`struct Instance`): handle dei parametri e delle clip.
 - Clip: `Source` (obbligatoria), `Reference` (opzionale), `SourceMask` e `ReferenceMask` (opzionali, `kOfxImageClipPropIsMask=1`, appaiono come Key input blu).
-- Parametri: `autoMatch`, `grabReference`, `exportCDL`, `intensity`, `slopeR/G/B`, `offsetR/G/B`, `powerR/G/B`, `saturation`, `skinEnable`, `skinProtection`, `refStatus` (string read-only) + 6 Double nascosti (`kOfxParamPropSecret=1`) per le statistiche grabbate: `refNeutralR/G/B`, `refBlackPoint`, `refWhitePoint`, `refColorfulSat` (serializzati nel progetto Resolve).
+- Parametri: `autoMatch`, `matchWhitePoint` (checkbox, default on), `matchPower` (checkbox, default off), `grabReference`, `exportCDL`, `intensity`, `slopeR/G/B`, `offsetR/G/B`, `powerR/G/B`, `saturation`, `skinEnable`, `skinProtection`, `refStatus` (string read-only) + 7 Double nascosti (`kOfxParamPropSecret=1`) per le statistiche grabbate: `refNeutralR/G/B`, `refBlackPoint`, `refWhitePoint`, `refColorfulSat`, `refMeanLuma` (serializzati nel progetto Resolve).
 - Render: CDL per pixel `out = (in*Slope + Offset)^Power`, poi saturazione globale; blend con `Intensity`; skin protection opzionale.
 
 ### Algoritmo Neutral-Point (Auto Match)
@@ -58,9 +58,9 @@ make release                # build/MagicMatch-1.0b-macOS-arm64.zip
    - **neutral gray point**: media pesata con peso `1/(1+20·sat²)`, escludendo luma >0.98 o <0.02;
    - **black/white point** = percentili 1° e 99° della luma;
    - **colorfulSat** (saturazione media dei pixel colorati).
-2. **Slope** = refRatio/srcRatio per canale (ratio = canale neutral / luma neutral), clamp 0.7–1.4.
+2. **Slope** = refRatio/srcRatio per canale (ratio = canale neutral / luma neutral), clamp 0.7–1.4. Con `matchWhitePoint` attivo, moltiplicato per g = (ref.white−ref.black)/(src.white−src.black) (clamp 0.7–1.4, ignorato se range source < 0.05); slope finale clamp 0.5–2.0.
 3. **Offset** uniforme = ref.black − src.black·avgSlope, clamp ±0.15.
-4. **Power** fisso 1.0.
+4. **Power** 1.0; con `matchPower` attivo, p = ln(ref.meanLuma)/ln(src.meanLuma·avgSlope+offset), clamp 0.9–1.1, uguale sui 3 canali (ignorato se le medie sono fuori 0.05–0.95 o se il grab è di una versione senza `refMeanLuma`: rifare Grab Reference).
 5. **Saturation** = ref.colorfulSat/src.colorfulSat, clamp 0.85–1.15.
 
 Priorità reference in Auto Match: **Reference clip OFX → statistiche grabbate → errore** ("No reference. Grab one first.").
@@ -79,6 +79,5 @@ XML ASC CDL v1.01 in `~/Documents/MagicMatch/CDL/MagicMatch_YYYYMMDD_HHMMSS.cdl`
 
 - Port e test Windows (x86_64 e ARM64): CMake o progetto VS2022, `.ofx` in `C:\Program Files\Common Files\OFX\Plugins\MagicMatch.ofx.bundle\Contents\Win64\`.
 - Code signing + notarizzazione macOS (poi rimuovere il passaggio `xattr -cr`).
-- Analisi su più frame / intera clip (oggi solo frame corrente).
 - Possibile supporto altri host OFX (Nuke, Fusion, Flame): da verificare, in particolare gestione clip maschera e bottoni.
 - Test automatici dell'algoritmo (statistiche e CDL) separati dal layer OFX.
