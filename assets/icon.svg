@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>MagicMatch</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E2128"/>
+      <stop offset="1" stop-color="#101216"/>
+    </linearGradient>
+    <linearGradient id="cool" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3DD6E0"/>
+      <stop offset="1" stop-color="#1B8FC9"/>
+    </linearGradient>
+    <linearGradient id="warm" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFB347"/>
+      <stop offset="1" stop-color="#F0602D"/>
+    </linearGradient>
+    <clipPath id="left"><circle cx="196" cy="256" r="124"/></clipPath>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="196" cy="256" r="124" fill="url(#cool)"/>
+  <circle cx="316" cy="256" r="124" fill="url(#warm)"/>
+  <!-- overlap = neutral point: where the two looks meet -->
+  <circle cx="316" cy="256" r="124" fill="#F4F4F2" clip-path="url(#left)"/>
+  <!-- sparkle -->
+  <path d="M256 188 C259 230 270 245 312 256 C270 267 259 282 256 324 C253 282 242 267 200 256 C242 245 253 230 256 188 Z" fill="#14171C"/>
+</svg>

@@ -116,6 +116,7 @@ static OfxParameterSuiteV1*    gParamSuite  = NULL;
 // (richiede refMeanLuma, salvato da Grab Reference)
 #define PARAM_MATCH_POWER   "matchPower"
 
+#define PARAM_CLAMP_OUT     "clampOutput"
 #define PARAM_SKIN_ENABLE   "skinEnable"
 #define PARAM_SKIN_PROTECT  "skinProtection"
 
@@ -145,6 +146,9 @@ static inline float clamp01(float v) {
     if (v > 1) return 1;
     return v;
 }
+
+// Solo il limite inferiore: i valori > 1.0 (linear, ACEScg, HDR) restano intatti
+static inline float floor0(float v) { return v < 0 ? 0 : v; }
 
 static inline float luma(float r, float g, float b) {
     return 0.2126f*r + 0.7152f*g + 0.0722f*b;
@@ -189,6 +193,10 @@ struct Stats {
     // Info diagnostiche
     float meanLuma;        // luminanza media (per esposizione)
     long  sampleCount;     // quanti pixel sono stati analizzati
+
+    // 0 = ok, 1 = memoria insufficiente, 2 = nessun pixel utilizzabile
+    // (maschera vuota, frame tutto nero/clippato): i valori sono solo default
+    int   error;
 };
 
 // Percentile con interpolazione lineare su array ordinato
@@ -202,10 +210,6 @@ static float percentile(float* sorted, long n, float p) {
     return sorted[i] * (1.0f - frac) + sorted[i+1] * frac;
 }
 
-static inline float median(float* sorted, long n) {
-    return percentile(sorted, n, 0.5f);
-}
-
 static int cmpFloat(const void* a, const void* b) {
     float fa = *(const float*)a, fb = *(const float*)b;
     if (fa < fb) return -1;
@@ -216,7 +220,7 @@ static int cmpFloat(const void* a, const void* b) {
 // Legge il peso dal matte (prende il max dei canali come luminanza)
 // Se maskData e' NULL, ritorna sempre 1.0 (nessuna maschera)
 static inline float maskWeight(const float* maskData, int maskRB,
-                                const OfxRectI* maskBounds,
+                                const OfxRectI* maskBounds, int maskNC,
                                 int absX, int absY) {
     if (!maskData) return 1.0f;
     int mx = absX - maskBounds->x1;
@@ -225,12 +229,47 @@ static inline float maskWeight(const float* maskData, int maskRB,
     int mh = maskBounds->y2 - maskBounds->y1;
     if (mx < 0 || mx >= mw || my < 0 || my >= mh) return 0.0f;
     const float* row = (const float*)((const uint8_t*)maskData + my*maskRB);
-    // Il matte OFX in Resolve arriva come RGBA: uso il max per robustezza
+    // Il matte arriva come RGBA (uso il max dei canali per robustezza)
+    // oppure come Alpha puro (1 canale)
+    if (maskNC == 1) return clamp01(row[mx]);
     float r = row[mx*4+0];
     float g = row[mx*4+1];
     float b = row[mx*4+2];
     float w = std::max({r, g, b});
     return clamp01(w);
+}
+
+// Verifica che l'immagine sia float con i canali attesi.
+// Ritorna il numero di canali (4 = RGBA, 1 = Alpha, solo se allowAlpha) o 0 se non supportata.
+static int imageChannels(OfxPropertySetHandle img, bool allowAlpha) {
+    char* depth = NULL;
+    char* comps = NULL;
+    if (gPropSuite->propGetString(img, kOfxImageEffectPropPixelDepth, 0, &depth) != kOfxStatOK || !depth) return 0;
+    if (gPropSuite->propGetString(img, kOfxImageEffectPropComponents, 0, &comps) != kOfxStatOK || !comps) return 0;
+    if (strcmp(depth, kOfxBitDepthFloat) != 0) return 0;
+    if (strcmp(comps, kOfxImageComponentRGBA) == 0) return 4;
+    if (allowAlpha && strcmp(comps, kOfxImageComponentAlpha) == 0) return 1;
+    return 0;
+}
+
+struct ImgView {
+    float*   data;
+    int      rb;
+    OfxRectI bounds;
+    int      nc;
+};
+
+// Legge puntatore, rowBytes e bounds; false se formato non supportato o dati nulli
+static bool getView(OfxPropertySetHandle img, bool allowAlpha, ImgView& v) {
+    v = ImgView{};
+    v.nc = imageChannels(img, allowAlpha);
+    if (v.nc == 0) return false;
+    void* d = NULL;
+    gPropSuite->propGetPointer(img, kOfxImagePropData, 0, &d);
+    gPropSuite->propGetInt(img, kOfxImagePropRowBytes, 0, &v.rb);
+    gPropSuite->propGetIntN(img, kOfxImagePropBounds, 4, (int*)&v.bounds);
+    v.data = (float*)d;
+    return d != NULL;
 }
 
 // Statistiche neutral-point per camera matching.
@@ -241,7 +280,7 @@ static inline float maskWeight(const float* maskData, int maskRB,
 static Stats computeStats(const float* data, int rowBytes,
                            const OfxRectI* bounds,
                            const float* maskData, int maskRB,
-                           const OfxRectI* maskBounds) {
+                           const OfxRectI* maskBounds, int maskNC) {
     Stats s{};
     int w = bounds->x2 - bounds->x1;
     int h = bounds->y2 - bounds->y1;
@@ -255,6 +294,7 @@ static Stats computeStats(const float* data, int rowBytes,
     float* luArr = (float*)malloc(capacity * sizeof(float));
 
     if (!luArr) {
+        s.error = 1;
         s.neutralR = s.neutralG = s.neutralB = 0.5f;
         s.blackPoint = 0.05f; s.whitePoint = 0.95f;
         s.colorfulSat = 0.3f; s.meanLuma = 0.5f;
@@ -279,12 +319,12 @@ static Stats computeStats(const float* data, int rowBytes,
         for (int x = 0; x < w; x += stride) {
             int absX = x + bounds->x1;
 
-            float wgt = useMask ? maskWeight(maskData, maskRB, maskBounds, absX, absY) : 1.0f;
+            float wgt = useMask ? maskWeight(maskData, maskRB, maskBounds, maskNC, absX, absY) : 1.0f;
             if (wgt < 0.5f) continue;
 
-            float r = clamp01(row[x*4+0]);
-            float g = clamp01(row[x*4+1]);
-            float b = clamp01(row[x*4+2]);
+            float r = floor0(row[x*4+0]);
+            float g = floor0(row[x*4+1]);
+            float b = floor0(row[x*4+2]);
             float mx = std::max({r,g,b});
             float mn = std::min({r,g,b});
             float lu = luma(r, g, b);
@@ -325,6 +365,7 @@ static Stats computeStats(const float* data, int rowBytes,
 
     if (n == 0 || wSumTotal < 0.001) {
         free(luArr);
+        s.error = 2;
         s.neutralR = s.neutralG = s.neutralB = 0.5f;
         s.blackPoint = 0.05f; s.whitePoint = 0.95f;
         s.colorfulSat = 0.3f; s.meanLuma = 0.5f;
@@ -351,7 +392,6 @@ static Stats computeStats(const float* data, int rowBytes,
 
     // Clamp per sicurezza
     if (s.blackPoint < 0.0f) s.blackPoint = 0.0f;
-    if (s.whitePoint > 1.0f) s.whitePoint = 1.0f;
     if (s.whitePoint <= s.blackPoint + 0.01f) s.whitePoint = s.blackPoint + 0.01f;
 
     s.sampleCount = n;
@@ -373,6 +413,22 @@ static Stats computeStats(const float* data, int rowBytes,
 //   - Saturation = ratio delle saturation colorful
 //   - Power = 1.0 di default (opzionale: stima dalla luma media, 0.9-1.1)
 // ─────────────────────────────────────────────────────────────────────
+
+static Stats statsFrom(const ImgView& img, const ImgView* mask) {
+    return computeStats(img.data, img.rb, &img.bounds,
+                        mask ? mask->data : NULL, mask ? mask->rb : 0,
+                        mask ? &mask->bounds : NULL, mask ? mask->nc : 4);
+}
+
+// Messaggio di status (<= 35 caratteri) per una Stats con error != 0
+// who: 0 = source, 1 = reference, 2 = grab
+static const char* statsError(const Stats& s, int who) {
+    if (s.error == 1) return "Analysis failed: out of memory.";
+    static const char* const m[] = {"Source: no usable pixels.",
+                                    "Reference: no usable pixels.",
+                                    "Grab failed: no usable pixels."};
+    return m[who];
+}
 
 struct CDL {
     float slopeR,  slopeG,  slopeB;
@@ -618,6 +674,7 @@ struct Instance {
     OfxParamHandle pMatchWhite;
     OfxParamHandle pMatchPower;
     OfxParamHandle pRefMean;
+    OfxParamHandle pClampOut;
     OfxParamHandle pSkinEnable;
     OfxParamHandle pSkinProtect;
     // Grab Reference
@@ -640,35 +697,27 @@ struct Instance {
 // ─────────────────────────────────────────────────────────────────────
 
 static void runGrabReference(Instance* inst, double time) {
-    OfxPropertySetHandle srcH = NULL;
+    OfxPropertySetHandle srcH = NULL, srcMaskH = NULL;
     gEffectSuite->clipGetImage(inst->cSource, time, NULL, &srcH);
     if (!srcH) {
         gParamSuite->paramSetValue(inst->pRefStatus, "No frame available.");
         return;
     }
-
-    void* srcData = NULL;
-    int   srcRB = 0;
-    OfxRectI srcBounds{};
-    gPropSuite->propGetPointer(srcH, kOfxImagePropData, 0, &srcData);
-    gPropSuite->propGetInt(srcH, kOfxImagePropRowBytes, 0, &srcRB);
-    gPropSuite->propGetIntN(srcH, kOfxImagePropBounds, 4, (int*)&srcBounds);
-
     // Maschera opzionale sul source (primo key input)
-    OfxPropertySetHandle srcMaskH = NULL;
     gEffectSuite->clipGetImage(inst->cSourceMask, time, NULL, &srcMaskH);
-    void* srcMaskData = NULL;
-    int   srcMaskRB = 0;
-    OfxRectI srcMaskBounds{};
-    if (srcMaskH) {
-        gPropSuite->propGetPointer(srcMaskH, kOfxImagePropData, 0, &srcMaskData);
-        gPropSuite->propGetInt(srcMaskH, kOfxImagePropRowBytes, 0, &srcMaskRB);
-        gPropSuite->propGetIntN(srcMaskH, kOfxImagePropBounds, 4, (int*)&srcMaskBounds);
-    }
 
-    Stats ref = computeStats((float*)srcData, srcRB, &srcBounds,
-                              (float*)srcMaskData, srcMaskRB,
-                              srcMaskH ? &srcMaskBounds : NULL);
+    auto fail = [&](const char* msg) {
+        gParamSuite->paramSetValue(inst->pRefStatus, msg);
+        gEffectSuite->clipReleaseImage(srcH);
+        if (srcMaskH) gEffectSuite->clipReleaseImage(srcMaskH);
+    };
+
+    ImgView sv, mv{};
+    if (!getView(srcH, false, sv))                  { fail("Unsupported image format."); return; }
+    if (srcMaskH && !getView(srcMaskH, true, mv))   { fail("Unsupported mask format.");  return; }
+
+    Stats ref = statsFrom(sv, srcMaskH ? &mv : NULL);
+    if (ref.error) { fail(statsError(ref, 2)); return; }  // i parametri salvati non vengono toccati
 
     // Salva le statistiche come parametri — Resolve le serializza nel progetto
     gParamSuite->paramSetValue(inst->pRefNeutralR, (double)ref.neutralR);
@@ -705,25 +754,25 @@ static void runAutoMatch(Instance* inst, double time) {
     gEffectSuite->clipGetImage(inst->cSourceMask, time, NULL, &srcMaskH);
     gEffectSuite->clipGetImage(inst->cRefMask,    time, NULL, &refMaskH);
 
-    void* srcData = NULL;
-    int   srcRB = 0;
-    OfxRectI srcBounds{};
-    gPropSuite->propGetPointer(srcH, kOfxImagePropData, 0, &srcData);
-    gPropSuite->propGetInt(srcH, kOfxImagePropRowBytes, 0, &srcRB);
-    gPropSuite->propGetIntN(srcH, kOfxImagePropBounds, 4, (int*)&srcBounds);
+    // Rilascia tutte le immagini ottenute (anche la maschera reference
+    // quando non c'e' un Reference clip)
+    auto cleanup = [&]() {
+        if (srcH)     gEffectSuite->clipReleaseImage(srcH);
+        if (refH)     gEffectSuite->clipReleaseImage(refH);
+        if (srcMaskH) gEffectSuite->clipReleaseImage(srcMaskH);
+        if (refMaskH) gEffectSuite->clipReleaseImage(refMaskH);
+    };
+    auto fail = [&](const char* msg) {
+        gParamSuite->paramSetValue(inst->pRefStatus, msg);
+        cleanup();
+    };
 
-    void* srcMaskData = NULL;
-    int   srcMaskRB = 0;
-    OfxRectI srcMaskBounds{};
-    if (srcMaskH) {
-        gPropSuite->propGetPointer(srcMaskH, kOfxImagePropData, 0, &srcMaskData);
-        gPropSuite->propGetInt(srcMaskH, kOfxImagePropRowBytes, 0, &srcMaskRB);
-        gPropSuite->propGetIntN(srcMaskH, kOfxImagePropBounds, 4, (int*)&srcMaskBounds);
-    }
+    ImgView sv, smv{};
+    if (!getView(srcH, false, sv))                    { fail("Unsupported image format."); return; }
+    if (srcMaskH && !getView(srcMaskH, true, smv))    { fail("Unsupported mask format.");  return; }
 
-    Stats src = computeStats((float*)srcData, srcRB, &srcBounds,
-                              (float*)srcMaskData, srcMaskRB,
-                              srcMaskH ? &srcMaskBounds : NULL);
+    Stats src = statsFrom(sv, srcMaskH ? &smv : NULL);
+    if (src.error) { fail(statsError(src, 0)); return; }
 
     // ── Ottieni le statistiche della reference ────────────────────────
     Stats ref{};
@@ -732,27 +781,12 @@ static void runAutoMatch(Instance* inst, double time) {
     // Priorita' 1: Reference clip OFX collegato
     gEffectSuite->clipGetImage(inst->cReference, time, NULL, &refH);
     if (refH) {
-        void* refData = NULL;
-        int   refRB = 0;
-        OfxRectI refBounds{};
-        gPropSuite->propGetPointer(refH, kOfxImagePropData, 0, &refData);
-        gPropSuite->propGetInt(refH, kOfxImagePropRowBytes, 0, &refRB);
-        gPropSuite->propGetIntN(refH, kOfxImagePropBounds, 4, (int*)&refBounds);
+        ImgView rv, rmv{};
+        if (!getView(refH, false, rv))                  { fail("Unsupported image format."); return; }
+        if (refMaskH && !getView(refMaskH, true, rmv))  { fail("Unsupported mask format.");  return; }
 
-        void* refMaskData = NULL;
-        int   refMaskRB = 0;
-        OfxRectI refMaskBounds{};
-        if (refMaskH) {
-            gPropSuite->propGetPointer(refMaskH, kOfxImagePropData, 0, &refMaskData);
-            gPropSuite->propGetInt(refMaskH, kOfxImagePropRowBytes, 0, &refMaskRB);
-            gPropSuite->propGetIntN(refMaskH, kOfxImagePropBounds, 4, (int*)&refMaskBounds);
-        }
-
-        ref = computeStats((float*)refData, refRB, &refBounds,
-                            (float*)refMaskData, refMaskRB,
-                            refMaskH ? &refMaskBounds : NULL);
-        gEffectSuite->clipReleaseImage(refH);
-        if (refMaskH) gEffectSuite->clipReleaseImage(refMaskH);
+        ref = statsFrom(rv, refMaskH ? &rmv : NULL);
+        if (ref.error) { fail(statsError(ref, 1)); return; }
         refFromClip = true;
         gParamSuite->paramSetValue(inst->pRefStatus, "Matched with Reference clip.");
     }
@@ -770,10 +804,7 @@ static void runAutoMatch(Instance* inst, double time) {
 
         // Se nessun Grab e' stato fatto, tutti i valori sono 0 — non procedere
         if (nR < 0.001f && nG < 0.001f && nB < 0.001f) {
-            gParamSuite->paramSetValue(inst->pRefStatus,
-                "No reference. Grab one first.");
-            gEffectSuite->clipReleaseImage(srcH);
-            if (srcMaskH) gEffectSuite->clipReleaseImage(srcMaskH);
+            fail("No reference. Grab one first.");
             return;
         }
 
@@ -812,8 +843,7 @@ static void runAutoMatch(Instance* inst, double time) {
         gParamSuite->paramSetValue(inst->pRefStatus, "Matched using grabbed ref.");
     }
 
-    gEffectSuite->clipReleaseImage(srcH);
-    if (srcMaskH) gEffectSuite->clipReleaseImage(srcMaskH);
+    cleanup();
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -859,6 +889,11 @@ static OfxStatus onDescribe(OfxImageEffectHandle effect) {
     gPropSuite->propSetString(props, kOfxPropShortLabel, 0, "MagicMatch");
     gPropSuite->propSetString(props, kOfxPropLongLabel,  0, "MagicMatch");
     gPropSuite->propSetString(props, kOfxImageEffectPluginPropGrouping, 0, "Color");
+
+    // Icona: file in <bundle>/Contents/Resources (copiati dal Makefile).
+    // [0] = SVG, [1] = PNG: l'host usa il primo formato che supporta.
+    gPropSuite->propSetString(props, kOfxPropIcon, 0, "com.strandlabs.magicmatch.svg");
+    gPropSuite->propSetString(props, kOfxPropIcon, 1, "com.strandlabs.magicmatch.png");
 
     gPropSuite->propSetString(props, kOfxImageEffectPropSupportedContexts, 0, kOfxImageEffectContextGeneral);
     gPropSuite->propSetString(props, kOfxImageEffectPropSupportedContexts, 1, kOfxImageEffectContextFilter);
@@ -1021,6 +1056,14 @@ static OfxStatus onDescribeInContext(OfxImageEffectHandle effect, OfxPropertySet
 
     defineSlider(paramSet, PARAM_SKIN_PROTECT, "Skin Strength", 0.85, 0.0, 1.0, 0.0, 1.0);
 
+    // ── Clamp Output ──────────────────────────────────────────
+    gParamSuite->paramDefine(paramSet, kOfxParamTypeBoolean, PARAM_CLAMP_OUT, &pp);
+    gPropSuite->propSetString(pp, kOfxPropLabel, 0, "Clamp Output");
+    gPropSuite->propSetInt(pp, kOfxParamPropDefault, 0, 0);
+    gPropSuite->propSetString(pp, kOfxParamPropHint, 0,
+        "Limit the output to 0-1. Off by default so that values above 1.0 "
+        "(linear, ACEScg, HDR) are preserved.");
+
     return kOfxStatOK;
 }
 
@@ -1045,6 +1088,7 @@ static OfxStatus onCreateInstance(OfxImageEffectHandle effect) {
     gParamSuite->paramGetHandle(paramSet, PARAM_MATCH_WHITE,   &inst->pMatchWhite,  0);
     gParamSuite->paramGetHandle(paramSet, PARAM_MATCH_POWER,   &inst->pMatchPower,  0);
     gParamSuite->paramGetHandle(paramSet, PARAM_REF_MEAN,      &inst->pRefMean,     0);
+    gParamSuite->paramGetHandle(paramSet, PARAM_CLAMP_OUT,     &inst->pClampOut,    0);
     gParamSuite->paramGetHandle(paramSet, PARAM_SKIN_ENABLE,   &inst->pSkinEnable,  0);
     gParamSuite->paramGetHandle(paramSet, PARAM_SKIN_PROTECT,  &inst->pSkinProtect, 0);
 
@@ -1134,6 +1178,7 @@ static OfxStatus onRender(OfxImageEffectHandle effect, OfxPropertySetHandle inAr
     double sat = 1.0;
     int    skinEnable = 0;
     double skinStr = 0.85;
+    int    clampOut = 0;
 
     gParamSuite->paramGetValueAtTime(inst->pIntensity,    time, &intensity);
     gParamSuite->paramGetValueAtTime(inst->pSlopeR,       time, &slopeR);
@@ -1148,6 +1193,7 @@ static OfxStatus onRender(OfxImageEffectHandle effect, OfxPropertySetHandle inAr
     gParamSuite->paramGetValueAtTime(inst->pSaturation,   time, &sat);
     gParamSuite->paramGetValueAtTime(inst->pSkinEnable,   time, &skinEnable);
     gParamSuite->paramGetValueAtTime(inst->pSkinProtect,  time, &skinStr);
+    gParamSuite->paramGetValueAtTime(inst->pClampOut,     time, &clampOut);
 
     OfxPropertySetHandle srcImg = NULL, outImg = NULL;
     gEffectSuite->clipGetImage(inst->cSource, time, NULL, &srcImg);
@@ -1158,15 +1204,16 @@ static OfxStatus onRender(OfxImageEffectHandle effect, OfxPropertySetHandle inAr
         return kOfxStatFailed;
     }
 
-    void* srcData = NULL; void* outData = NULL;
-    int srcRB = 0, outRB = 0;
-    OfxRectI srcBounds{}, outBounds{};
-    gPropSuite->propGetPointer(srcImg, kOfxImagePropData, 0, &srcData);
-    gPropSuite->propGetPointer(outImg, kOfxImagePropData, 0, &outData);
-    gPropSuite->propGetInt(srcImg, kOfxImagePropRowBytes, 0, &srcRB);
-    gPropSuite->propGetInt(outImg, kOfxImagePropRowBytes, 0, &outRB);
-    gPropSuite->propGetIntN(srcImg, kOfxImagePropBounds, 4, (int*)&srcBounds);
-    gPropSuite->propGetIntN(outImg, kOfxImagePropBounds, 4, (int*)&outBounds);
+    // Solo float RGBA: altrimenti si leggerebbe memoria con layout sbagliato
+    ImgView sv, ov;
+    if (!getView(srcImg, false, sv) || !getView(outImg, false, ov)) {
+        gEffectSuite->clipReleaseImage(srcImg);
+        gEffectSuite->clipReleaseImage(outImg);
+        return kOfxStatErrImageFormat;
+    }
+    void* srcData = sv.data; void* outData = ov.data;
+    int srcRB = sv.rb, outRB = ov.rb;
+    OfxRectI srcBounds = sv.bounds, outBounds = ov.bounds;
 
     for (int y = renderWin.y1; y < renderWin.y2; y++) {
         int sy = y - srcBounds.y1;
@@ -1205,9 +1252,10 @@ static OfxStatus onRender(OfxImageEffectHandle effect, OfxPropertySetHandle inAr
                 b2 = b + (b2 - b) * (1.0f - w);
             }
 
-            outRow[ox*4+0] = clamp01(r2);
-            outRow[ox*4+1] = clamp01(g2);
-            outRow[ox*4+2] = clamp01(b2);
+            // Output non limitato a 1.0 (linear/ACEScg/HDR) salvo Clamp Output
+            outRow[ox*4+0] = clampOut ? clamp01(r2) : r2;
+            outRow[ox*4+1] = clampOut ? clamp01(g2) : g2;
+            outRow[ox*4+2] = clampOut ? clamp01(b2) : b2;
             outRow[ox*4+3] = a;
         }
     }

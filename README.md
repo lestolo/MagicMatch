@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.png" alt="MagicMatch logo" width="128"></p>
+
 # MagicMatch
 
 [![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
@@ -75,6 +77,7 @@ Put a Color Space Transform before MagicMatch and one after to return to your wo
 | Slope / Offset / Power R,G,B | CDL values (Power is left at 1.0 by Auto Match) |
 | Saturation | Global saturation |
 | Skin Protection / Strength | Preserve skin tones under strong corrections |
+| Clamp Output | Off by default: values above 1.0 (linear, ACEScg, HDR) are preserved. Turn on to limit the output to 0–1 |
 
 Per pixel: `out = (in * Slope + Offset)^Power`, then saturation.
 

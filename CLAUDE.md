@@ -9,6 +9,7 @@ Autore: Alessio Pallante (StrandLabs, Roma). Lingua di lavoro: **italiano** quan
 src/MagicMatch.cpp   # unico sorgente (~1170 righe), C++17, OpenFX 1.4
 Makefile             # build macOS arm64: all / install / install-user / check / release / clean
 install.command      # installer double-click per le release
+assets/icon.svg, icon.png   # logo: copiato in Contents/Resources del bundle (kOfxPropIcon) e usato nel README
 README.md  INSTALL.md  LICENSE (GPL-3.0)
 ```
 
@@ -49,7 +50,7 @@ make release                # build/MagicMatch-1.1b-macOS-arm64.zip
 - Un solo `OfxPlugin`, azioni: describe, describeInContext, createInstance, destroyInstance, instanceChanged (bottoni), render.
 - Instance data (`struct Instance`): handle dei parametri e delle clip.
 - Clip: `Source` (obbligatoria), `Reference` (opzionale), `SourceMask` e `ReferenceMask` (opzionali, `kOfxImageClipPropIsMask=1`, appaiono come Key input blu).
-- Parametri: `autoMatch`, `matchWhitePoint` (checkbox, default on), `matchPower` (checkbox, default off), `grabReference`, `exportCDL`, `intensity`, `slopeR/G/B`, `offsetR/G/B`, `powerR/G/B`, `saturation`, `skinEnable`, `skinProtection`, `refStatus` (string read-only) + 7 Double nascosti (`kOfxParamPropSecret=1`) per le statistiche grabbate: `refNeutralR/G/B`, `refBlackPoint`, `refWhitePoint`, `refColorfulSat`, `refMeanLuma` (serializzati nel progetto Resolve).
+- Parametri: `autoMatch`, `matchWhitePoint` (checkbox, default on), `matchPower` (checkbox, default off), `grabReference`, `exportCDL`, `intensity`, `slopeR/G/B`, `offsetR/G/B`, `powerR/G/B`, `saturation`, `skinEnable`, `skinProtection`, `clampOutput` (checkbox, default off: output non limitato a 1.0), `refStatus` (string read-only) + 7 Double nascosti (`kOfxParamPropSecret=1`) per le statistiche grabbate: `refNeutralR/G/B`, `refBlackPoint`, `refWhitePoint`, `refColorfulSat`, `refMeanLuma` (serializzati nel progetto Resolve).
 - Render: CDL per pixel `out = (in*Slope + Offset)^Power`, poi saturazione globale; blend con `Intensity`; skin protection opzionale.
 
 ### Algoritmo Neutral-Point (Auto Match)
@@ -69,7 +70,7 @@ Lezioni apprese: mediane per sat/power → saturazione collassata (usare **medie
 
 ### Messaggi di status (≤35 caratteri, il campo stringa read-only di Resolve non va a capo)
 
-`No reference grabbed.` · `No frame available.` · `Grabbed. Copy node to target clip.` · `Matched with Reference clip.` · `Matched using grabbed ref.` · `No reference. Grab one first.`
+`No reference grabbed.` · `No frame available.` · `Grabbed. Copy node to target clip.` · `Matched with Reference clip.` · `Matched using grabbed ref.` · `No reference. Grab one first.` · `Unsupported image format.` · `Unsupported mask format.` · `Source: no usable pixels.` · `Reference: no usable pixels.` · `Grab failed: no usable pixels.` · `Analysis failed: out of memory.`
 
 ### Export CDL
 

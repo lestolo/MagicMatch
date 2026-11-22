@@ -13,6 +13,9 @@ BINARY       = $(PLUGIN_NAME).ofx
 BUILD_DIR    = build
 BUNDLE_DIR   = $(BUILD_DIR)/$(BUNDLE_NAME)
 MACOS_DIR    = $(BUNDLE_DIR)/Contents/MacOS
+RES_DIR      = $(BUNDLE_DIR)/Contents/Resources
+ICON_ID      = com.strandlabs.magicmatch
+ICON_FILES   = $(RES_DIR)/$(ICON_ID).svg $(RES_DIR)/$(ICON_ID).png
 
 CXX          = clang++
 # -O3: ottimizzazione massima
@@ -41,7 +44,16 @@ OBJ          = $(BUILD_DIR)/MagicMatch.o
 
 .PHONY: all clean install install-user check release
 
-all: $(MACOS_DIR)/$(BINARY) $(BUNDLE_DIR)/Contents/Info.plist
+all: $(MACOS_DIR)/$(BINARY) $(BUNDLE_DIR)/Contents/Info.plist $(ICON_FILES)
+
+# Icona del plugin (letta dall'host tramite kOfxPropIcon)
+$(RES_DIR)/$(ICON_ID).svg: assets/icon.svg
+	@mkdir -p $(RES_DIR)
+	cp $< $@
+
+$(RES_DIR)/$(ICON_ID).png: assets/icon.png
+	@mkdir -p $(RES_DIR)
+	cp $< $@
 
 $(OBJ): $(SRC)
 	@mkdir -p $(BUILD_DIR)
