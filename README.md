@@ -24,7 +24,7 @@ cameras, same look. It runs fully locally: no server, no AI inference, no accoun
 
 ## Install
 
-1. Download `MagicMatch-1.1b-macOS-arm64.zip` from the [latest release](https://github.com/lestolo/MagicMatch/releases/latest).
+1. Download `MagicMatch-1.1b-macOS-arm64.zip` from the [Releases page](https://github.com/lestolo/MagicMatch/releases) (newest version on top).
 2. Unzip, double-click `install.command` (right-click → **Open** if macOS blocks it).
 3. Quit and restart DaVinci Resolve.
 
