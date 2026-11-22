@@ -1,25 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <title>MagicMatch</title>
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1E2128"/>
-      <stop offset="1" stop-color="#101216"/>
-    </linearGradient>
-    <linearGradient id="cool" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3DD6E0"/>
-      <stop offset="1" stop-color="#1B8FC9"/>
-    </linearGradient>
-    <linearGradient id="warm" x1="1" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFB347"/>
-      <stop offset="1" stop-color="#F0602D"/>
-    </linearGradient>
-    <clipPath id="left"><circle cx="196" cy="256" r="124"/></clipPath>
-  </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <circle cx="196" cy="256" r="124" fill="url(#cool)"/>
-  <circle cx="316" cy="256" r="124" fill="url(#warm)"/>
-  <!-- overlap = neutral point: where the two looks meet -->
-  <circle cx="316" cy="256" r="124" fill="#F4F4F2" clip-path="url(#left)"/>
-  <!-- sparkle -->
-  <path d="M256 188 C259 230 270 245 312 256 C270 267 259 282 256 324 C253 282 242 267 200 256 C242 245 253 230 256 188 Z" fill="#14171C"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><defs>
+<linearGradient id="bga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#232730"/><stop offset="1" stop-color="#0F1115"/></linearGradient>
+<linearGradient id="hia" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".07"/><stop offset="0.45" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<linearGradient id="sa" gradientUnits="userSpaceOnUse" x1="95.0" y1="0" x2="417.0" y2="0"><stop offset="0" stop-color="#3DD6E0"/><stop offset="0.3" stop-color="#27B5DA"/><stop offset="0.5" stop-color="#F4F4F2"/><stop offset="0.7" stop-color="#FFAE5C"/><stop offset="1" stop-color="#FF8A3D"/></linearGradient>
+<clipPath id="lca"><path d="M70 440 L70 262 A186 186 0 0 1 442 262 L442 440 Z"/></clipPath>
+</defs>
+<rect width="512" height="512" rx="112" fill="url(#bga)"/><rect width="512" height="512" rx="112" fill="url(#hia)"/>
+<rect x="1.5" y="1.5" width="509" height="509" rx="110.5" fill="none" stroke="#FFFFFF" stroke-opacity=".10" stroke-width="3"/>
+<g clip-path="url(#lca)"><path d="M95.0 440 L95.0 30 L129.0 30 L129.0 440 Z M211.0 440 L211.0 30 L245.0 30 L245.0 440 Z M267.0 440 L267.0 30 L301.0 30 L301.0 440 Z M383.0 440 L383.0 30 L417.0 30 L417.0 440 Z " fill="url(#sa)"/><path d="M121.0 30 L170.0 456 L219.0 30 M293.0 30 L342.0 456 L391.0 30 " fill="none" stroke="url(#sa)" stroke-width="22" stroke-linejoin="miter" stroke-miterlimit="10"/></g></svg>

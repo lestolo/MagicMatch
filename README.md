@@ -4,7 +4,7 @@
 
 [![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Platform: macOS arm64](https://img.shields.io/badge/platform-macOS%20arm64-lightgrey.svg)
-![Status: beta](https://img.shields.io/badge/status-1.1%20beta-orange.svg)
+![Status: beta](https://img.shields.io/badge/status-1.2%20beta-orange.svg)
 
 **Open-source camera-matching plugin for DaVinci Resolve (OpenFX).**
 
@@ -26,7 +26,7 @@ cameras, same look. It runs fully locally: no server, no AI inference, no accoun
 
 ## Install
 
-1. Download `MagicMatch-1.1b-macOS-arm64.zip` from the [Releases page](https://github.com/lestolo/MagicMatch/releases) (newest version on top).
+1. Download `MagicMatch-1.2b-macOS-arm64.zip` from the [Releases page](https://github.com/lestolo/MagicMatch/releases) (newest version on top).
 2. Unzip, double-click `install.command` (right-click → **Open** if macOS blocks it).
 3. Quit and restart DaVinci Resolve.
 

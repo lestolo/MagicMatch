@@ -20,7 +20,7 @@ OFX SDK (header): `~/Desktop/openfx/include` (override: `make OFX_SDK=...`). Rep
 ```bash
 make && make install        # /Library/OFX/Plugins, esegue xattr -cr
 make check                  # simboli esportati: solo OfxGetPlugin / OfxGetNumberOfPlugins
-make release                # build/MagicMatch-1.1b-macOS-arm64.zip
+make release                # build/MagicMatch-1.2b-macOS-arm64.zip
 ```
 
 - Resolve carica gli OFX **solo all'avvio**: dopo ogni install ricordare di riavviare Resolve (⌘Q e riapri).
