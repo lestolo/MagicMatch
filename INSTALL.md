@@ -62,8 +62,13 @@ Exported CDL files are in `~/Documents/MagicMatch/CDL/` and are not removed.
 | MagicMatch is not in the OpenFX list | Fully quit and reopen Resolve; check the bundle is in `/Library/OFX/Plugins/`; run `sudo xattr -cr /Library/OFX/Plugins/MagicMatch.ofx.bundle` |
 | OpenFX panel is empty or missing | You need Resolve **Studio**; the free version has no OFX support |
 | macOS blocks `install.command` | Right-click → **Open**. The build is not code-signed yet |
+| Listed in Video Plugins as "Failed to load" | Reset Resolve's plugin cache (`OFXPluginCacheV2.xml`), see [README → Troubleshooting](README.md#troubleshooting) |
 | Plugin listed but does not load | Check the Mac is Apple Silicon (`uname -m` must print `arm64`) |
 | Status says `No reference. Grab one first.` | Click **Grab Reference** on the reference clip first, or connect a Reference clip |
+
+## More help
+
+Full step-by-step guide, diagnostic commands and log hints: [README → Troubleshooting](README.md#troubleshooting).
 
 ## Build from source
 

@@ -98,6 +98,49 @@ the 1st/99th luma percentiles as black/white points, and a "colorful" saturation
 - Tuned for camera matching, not stylized look transfer.
 - Unsigned build: see [INSTALL.md](INSTALL.md) for the Gatekeeper steps.
 
+## Troubleshooting
+
+**MagicMatch does not appear in Resolve.** Work through these in order, restarting Resolve (⌘Q, then reopen) after each step: it loads OpenFX plugins only at startup.
+
+1. **Resolve Studio is required.** The free version does not load OFX plugins.
+2. **Look in the right place.** Color page → Effects → **OpenFX → Color → MagicMatch**, or type "MagicMatch" in the Effects search box. Some plugins are listed under a vendor header instead.
+3. **Check Preferences → System → Video Plugins.**
+   - Not listed: the bundle is not in `/Library/OFX/Plugins/` (or `~/Library/OFX/Plugins/`), or the folder name is wrong. It must be `MagicMatch.ofx.bundle`.
+   - Listed but unticked: tick it, apply, restart Resolve.
+   - Listed with **Failed to load** (even after a correct install): go to step 5, the cache is the usual cause.
+4. **Remove the macOS quarantine flag and fix permissions** (a downloaded, unnotarized bundle can be blocked silently):
+   ```bash
+   sudo xattr -cr /Library/OFX/Plugins/MagicMatch.ofx.bundle
+   sudo chmod -R 755 /Library/OFX/Plugins/MagicMatch.ofx.bundle
+   ```
+5. **Reset Resolve's plugin cache.** Resolve remembers a failed load and may keep showing "Failed to load" even after the problem is fixed. Quit Resolve, then:
+   ```bash
+   mv "$HOME/Library/Application Support/Blackmagic Design/DaVinci Resolve/OFXPluginCacheV2.xml" ~/Desktop/OFXPluginCacheV2.xml.bak
+   ```
+   Resolve rebuilds the file at the next launch. Only plugin scan data is lost, not projects. A failed entry looks like `status="2"` (often with `mtime="0" size="0"`) next to the bundle path in that file; a good one has `status="0"`.
+6. **Remove stray files from `/Library/OFX/Plugins/`.** `.zip` archives and unrelated folders there produce `Failed to load` lines in the log and slow down startup.
+7. **Reinstall the latest release** with `uninstall.command` then `install.command` (old builds, up to 1.2b, are not code-signed and target a newer minimum macOS than they declare).
+
+**Diagnostics.** To check that the binary itself is healthy, run:
+
+```bash
+ls -laO /Library/OFX/Plugins/ ~/Library/OFX/Plugins/ 2>&1 | grep -i magic
+xattr -lr /Library/OFX/Plugins/MagicMatch.ofx.bundle
+codesign -dv --verbose=2 /Library/OFX/Plugins/MagicMatch.ofx.bundle 2>&1 | head -12
+file /Library/OFX/Plugins/MagicMatch.ofx.bundle/Contents/MacOS/MagicMatch.ofx
+python3 -c "import ctypes; l=ctypes.CDLL('/Library/OFX/Plugins/MagicMatch.ofx.bundle/Contents/MacOS/MagicMatch.ofx'); print('dlopen OK, plugins:', l.OfxGetNumberOfPlugins())"
+```
+
+`dlopen OK, plugins: 1` and an empty `xattr` output mean the plugin is fine and the problem is on the Resolve side (steps 2, 3 and 5). The architecture must be `arm64`; `uname -m` on the Mac must print `arm64` and Resolve must not run under Rosetta.
+
+**Resolve log.** Look for `MagicMatch` or `OpenFX` in `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/logs/davinci_resolve.log` (a line like `Failed to load /Library/OFX/Plugins/MagicMatch.ofx.bundle` means Resolve found the bundle but could not load it; Resolve writes nothing for a successful load). For system-level errors (signature, Gatekeeper) right after starting Resolve:
+
+```bash
+log show --last 10m --info --predicate 'eventMessage CONTAINS[c] "MagicMatch"' --style compact | tail -40
+```
+
+When reporting a problem, attach the output of the diagnostic commands, your macOS and Resolve versions, and the relevant log lines.
+
 ## Build from source
 
 macOS, Xcode command line tools, and the [OpenFX headers](https://github.com/AcademySoftwareFoundation/openfx):
