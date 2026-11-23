@@ -162,7 +162,7 @@ Issues and pull requests are welcome. Keep the code cross-platform: guard OS-spe
 
 ## Author
 
-Alessio Pallante, [StrandLabs](https://www.strandlabs.it/magicmatch), Rome.
+Alessio Pallante, [StrandLabs](https://www.strandlabs.it), Rome.
 
 ## License
 
