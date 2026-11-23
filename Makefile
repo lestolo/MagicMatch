@@ -21,18 +21,18 @@ CXX          = clang++
 # -O3: ottimizzazione massima
 # -fvisibility=hidden: nasconde tutti i simboli interni
 # -ffunction-sections / -fdata-sections: permette allo stripper di rimuovere simboli non usati
-CXXFLAGS     = -std=c++17 -O3 -arch arm64 \
+CXXFLAGS     = -std=c++17 -O3 -arch arm64 -mmacosx-version-min=13.0 \
                -I$(OFX_SDK) \
                -fvisibility=hidden \
                -fvisibility-inlines-hidden \
                -ffunction-sections -fdata-sections \
                -Wall -Wno-unused-parameter \
-               -DMAGICMATCH_VERSION_STR='"1.2 beta"'
+               -DMAGICMATCH_VERSION_STR='"1.3 beta"'
 
 # -Wl,-dead_strip: rimuove codice morto
 # -Wl,-x: strip local symbols
 # -Wl,-S: strip debug symbols
-LDFLAGS      = -arch arm64 -bundle \
+LDFLAGS      = -arch arm64 -mmacosx-version-min=13.0 -bundle \
                -Wl,-undefined,dynamic_lookup \
                -Wl,-exported_symbol,_OfxGetPlugin \
                -Wl,-exported_symbol,_OfxGetNumberOfPlugins \
@@ -45,6 +45,9 @@ OBJ          = $(BUILD_DIR)/MagicMatch.o
 .PHONY: all clean install install-user check release
 
 all: $(MACOS_DIR)/$(BINARY) $(BUNDLE_DIR)/Contents/Info.plist $(ICON_FILES)
+	@# Firma ad-hoc dell'intero bundle (sigilla Info.plist e Resources). Non sostituisce Developer ID/notarizzazione
+	@codesign --force --deep -s - $(BUNDLE_DIR)
+	@codesign --verify --deep --strict $(BUNDLE_DIR) && echo ">>> Bundle firmato (ad-hoc) e verificato"
 
 # Icona del plugin (letta dall'host tramite kOfxPropIcon)
 $(RES_DIR)/$(ICON_ID).svg: assets/icon.svg
@@ -77,14 +80,14 @@ $(BUNDLE_DIR)/Contents/Info.plist:
 	'  <key>CFBundleIdentifier</key><string>com.strandlabs.magicmatch</string>' \
 	'  <key>CFBundleName</key><string>$(PLUGIN_NAME)</string>' \
 	'  <key>CFBundleDisplayName</key><string>MagicMatch</string>' \
-	'  <key>CFBundleShortVersionString</key><string>1.2 beta</string>' \
-	'  <key>CFBundleVersion</key><string>1.2.0</string>' \
+	'  <key>CFBundleShortVersionString</key><string>1.3 beta</string>' \
+	'  <key>CFBundleVersion</key><string>1.3.0</string>' \
 	'  <key>CFBundlePackageType</key><string>BNDL</string>' \
 	'  <key>CFBundleSignature</key><string>????</string>' \
 	'  <key>NSHumanReadableCopyright</key><string>Copyright (C) 2026 Alessio Pallante / StrandLabs. GPL-3.0-or-later.</string>' \
 	'  <key>LSMinimumSystemVersion</key><string>13.0</string>' \
-	'  <key>MMProductURL</key><string>https://www.strandlabs.eu/magicmatch</string>' \
-	'  <key>MMSupportEmail</key><string>support@strandlabs.eu</string>' \
+	'  <key>MMProductURL</key><string>https://www.strandlabs.it/magicmatch</string>' \
+	'  <key>MMSupportEmail</key><string>support@strandlabs.it</string>' \
 	'</dict></plist>' \
 	> $@
 	@echo ">>> Info.plist creato"
@@ -98,29 +101,30 @@ check: all
 	@nm -gU $(MACOS_DIR)/$(BINARY) | wc -l
 
 # Target per produrre lo zip finale da distribuire agli utenti
-# Il risultato e' in build/MagicMatch-1.2b-macOS-arm64.zip
-# Quando unzippato, crea una cartella "MagicMatch-1.2b/" contenente:
+# Il risultato e' in build/MagicMatch-1.3b-macOS-arm64.zip
+# Quando unzippato, crea una cartella "MagicMatch-1.3b/" contenente:
 #   - MagicMatch.ofx.bundle    (plugin compilato)
 #   - install.command          (installer double-click)
+#   - uninstall.command        (uninstaller double-click)
 #   - INSTALL.md               (quick install guide)
 #   - README.md                (full documentation)
 release: all
 	@rm -rf $(BUILD_DIR)/release
-	@mkdir -p $(BUILD_DIR)/release/MagicMatch-1.2b
-	@cp -r $(BUNDLE_DIR) $(BUILD_DIR)/release/MagicMatch-1.2b/
-	@cp README.md $(BUILD_DIR)/release/MagicMatch-1.2b/ 2>/dev/null || true
-	@cp INSTALL.md $(BUILD_DIR)/release/MagicMatch-1.2b/ 2>/dev/null || true
-	@cp install.command $(BUILD_DIR)/release/MagicMatch-1.2b/ 2>/dev/null || true
-	@chmod +x $(BUILD_DIR)/release/MagicMatch-1.2b/install.command 2>/dev/null || true
+	@mkdir -p $(BUILD_DIR)/release/MagicMatch-1.3b
+	@cp -r $(BUNDLE_DIR) $(BUILD_DIR)/release/MagicMatch-1.3b/
+	@cp README.md $(BUILD_DIR)/release/MagicMatch-1.3b/ 2>/dev/null || true
+	@cp INSTALL.md $(BUILD_DIR)/release/MagicMatch-1.3b/ 2>/dev/null || true
+	@cp install.command uninstall.command $(BUILD_DIR)/release/MagicMatch-1.3b/ 2>/dev/null || true
+	@chmod +x $(BUILD_DIR)/release/MagicMatch-1.3b/install.command $(BUILD_DIR)/release/MagicMatch-1.3b/uninstall.command 2>/dev/null || true
 	@# Rimuove eventuali attributi di quarantena dal bundle prima del packaging
-	@xattr -cr $(BUILD_DIR)/release/MagicMatch-1.2b/$(BUNDLE_NAME) 2>/dev/null || true
-	@cd $(BUILD_DIR)/release && zip -r ../MagicMatch-1.2b-macOS-arm64.zip MagicMatch-1.2b -x "*.DS_Store"
+	@xattr -cr $(BUILD_DIR)/release/MagicMatch-1.3b/$(BUNDLE_NAME) 2>/dev/null || true
+	@cd $(BUILD_DIR)/release && zip -r ../MagicMatch-1.3b-macOS-arm64.zip MagicMatch-1.3b -x "*.DS_Store"
 	@echo ""
 	@echo "════════════════════════════════════════════════════════════"
 	@echo " RELEASE READY"
 	@echo "════════════════════════════════════════════════════════════"
-	@echo " File: $(BUILD_DIR)/MagicMatch-1.2b-macOS-arm64.zip"
-	@echo " Size: $$(du -h $(BUILD_DIR)/MagicMatch-1.2b-macOS-arm64.zip | cut -f1)"
+	@echo " File: $(BUILD_DIR)/MagicMatch-1.3b-macOS-arm64.zip"
+	@echo " Size: $$(du -h $(BUILD_DIR)/MagicMatch-1.3b-macOS-arm64.zip | cut -f1)"
 	@echo ""
 	@echo " Attach this zip to a GitHub Release."
 	@echo " Users will: unzip -> double-click install.command"

@@ -7,7 +7,7 @@
 
 ## Install (recommended)
 
-1. Download `MagicMatch-1.2b-macOS-arm64.zip` from the [Releases page](https://github.com/lestolo/MagicMatch/releases) (newest version on top) and unzip it.
+1. Download `MagicMatch-1.3b-macOS-arm64.zip` from the [Releases page](https://github.com/lestolo/MagicMatch/releases) (newest version on top) and unzip it.
 2. Double-click `install.command`.
    - If macOS says it cannot be opened: right-click the file → **Open** → **Open**.
 3. Press Enter and type your Mac password when asked. The plugin is copied to `/Library/OFX/Plugins/`.
@@ -45,6 +45,8 @@ For best results work in a log space with a Color Space Transform before and aft
 Run the new `install.command`: it replaces the previous version. Restart Resolve afterwards.
 
 ## Uninstall
+
+Double-click `uninstall.command` from the release folder (right-click → **Open** if macOS blocks it). Or manually:
 
 ```bash
 sudo rm -rf /Library/OFX/Plugins/MagicMatch.ofx.bundle

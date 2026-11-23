@@ -20,7 +20,7 @@ OFX SDK (header): `~/Desktop/openfx/include` (override: `make OFX_SDK=...`). Rep
 ```bash
 make && make install        # /Library/OFX/Plugins, esegue xattr -cr
 make check                  # simboli esportati: solo OfxGetPlugin / OfxGetNumberOfPlugins
-make release                # build/MagicMatch-1.2b-macOS-arm64.zip
+make release                # build/MagicMatch-1.3b-macOS-arm64.zip
 ```
 
 - Resolve carica gli OFX **solo all'avvio**: dopo ogni install ricordare di riavviare Resolve (⌘Q e riapri).
@@ -43,7 +43,7 @@ make release                # build/MagicMatch-1.2b-macOS-arm64.zip
 - **Niente DCTL**: valutato e scartato all'inizio dello sviluppo.
 - **Mai committare segreti**: il vecchio master secret delle licenze è comparso in chat e in file passati ed è da considerare **compromesso**. `.gitignore` esclude `secrets/`, `*.hex`, `secret_obfuscated.h`. Nessun segreto in sorgenti, log o documentazione.
 - Licenza **GPL-3.0-or-later** (header SPDX nel sorgente). Gli header OpenFX sono BSD, compatibili. Prima di accettare PR esterne valutare un CLA se si vuole mantenere la possibilità di rilascio commerciale separato.
-- Branding: plugin ID `com.strandlabs.magicmatch`, label "MagicMatch", gruppo "Strand_Labs", https://www.strandlabs.eu/magicmatch.
+- Branding: plugin ID `com.strandlabs.magicmatch`, label "MagicMatch", gruppo "Strand_Labs", https://www.strandlabs.it/magicmatch.
 
 ## Architettura del plugin
 
